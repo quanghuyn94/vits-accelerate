@@ -15,13 +15,19 @@ logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 logger = logging
 
 
-def load_checkpoint(checkpoint_path, model, optimizer=None):
+def load_checkpoint(checkpoint_path, model, optimizer=None, fine_tune=False):
   assert os.path.isfile(checkpoint_path)
   checkpoint_dict = torch.load(checkpoint_path, map_location='cpu')
   iteration = checkpoint_dict['iteration']
   learning_rate = checkpoint_dict['learning_rate']
-  if optimizer is not None:
-    optimizer.load_state_dict(checkpoint_dict['optimizer'])
+  
+  try:
+    if optimizer is not None and fine_tune == False:
+      optimizer.load_state_dict(checkpoint_dict['optimizer'])
+  except:
+    fine_tune = True
+    pass
+
   saved_state_dict = checkpoint_dict['model']
   if hasattr(model, 'module'):
     state_dict = model.module.state_dict()
@@ -38,9 +44,8 @@ def load_checkpoint(checkpoint_path, model, optimizer=None):
     model.module.load_state_dict(new_state_dict)
   else:
     model.load_state_dict(new_state_dict)
-  logger.info("Loaded checkpoint '{}' (iteration {})" .format(
-    checkpoint_path, iteration))
-  return model, optimizer, learning_rate, iteration
+    
+  return model, optimizer, learning_rate, iteration, fine_tune
 
 
 def save_checkpoint(model, optimizer, learning_rate, iteration, checkpoint_path):
@@ -71,7 +76,6 @@ def latest_checkpoint_path(dir_path, regex="G_*.pth"):
   f_list = glob.glob(os.path.join(dir_path, regex))
   f_list.sort(key=lambda f: int("".join(filter(str.isdigit, f))))
   x = f_list[-1]
-  print(x)
   return x
 
 
@@ -157,12 +161,12 @@ def get_hparams(init=True):
   config_path = args.config
   config_save_path = os.path.join(model_dir, "config.json")
   if init:
-    with open(config_path, "r") as f:
+    with open(config_path, "r", encoding='utf-8') as f:
       data = f.read()
-    with open(config_save_path, "w") as f:
+    with open(config_save_path, "w", encoding='utf-8') as f:
       f.write(data)
   else:
-    with open(config_save_path, "r") as f:
+    with open(config_save_path, "r", encoding='utf-8') as f:
       data = f.read()
   config = json.loads(data)
   

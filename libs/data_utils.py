@@ -5,9 +5,9 @@ import numpy as np
 import torch
 import torch.utils.data
 
-import commons 
-from mel_processing import spectrogram_torch
-from utils import load_wav_to_torch, load_filepaths_and_text
+import libs.commons  as commons
+from libs.mel_processing import spectrogram_torch
+from libs.utils import load_wav_to_torch, load_filepaths_and_text
 from text import text_to_sequence, cleaned_text_to_sequence
 
 
@@ -104,12 +104,16 @@ class TextAudioCollate():
         self.return_ids = return_ids
 
     def __call__(self, batch):
-        """Collate's training batch from normalized text and aduio
+        """Collate's training batch from normalized text and audio
         PARAMS
         ------
         batch: [text_normalized, spec_normalized, wav_normalized]
         """
+        # print(batch[0])
         # Right zero-pad all one-hot text sequences to max input length
+        
+        
+
         _, ids_sorted_decreasing = torch.sort(
             torch.LongTensor([x[1].size(1) for x in batch]),
             dim=0, descending=True)

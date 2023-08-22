@@ -3,6 +3,10 @@ import json
 import argparse
 import itertools
 import math
+import logging
+logging.getLogger('numba').setLevel(logging.WARNING)
+logging.getLogger('matplotlib').setLevel(logging.WARNING)
+import tqdm
 import torch
 from torch import nn, optim
 from torch.nn import functional as F
@@ -13,28 +17,29 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.cuda.amp import autocast, GradScaler
 
-import commons
-import utils
-from data_utils import (
+import libs.commons as commons
+import libs.utils as utils
+import libs.train_utils as train_utils
+
+from libs.data_utils import (
   TextAudioLoader,
   TextAudioCollate,
   DistributedBucketSampler
 )
-from models import (
+from libs.models import (
   SynthesizerTrn,
   MultiPeriodDiscriminator,
 )
-from losses import (
+from libs.losses import (
   generator_loss,
   discriminator_loss,
   feature_loss,
   kl_loss
 )
-from mel_processing import mel_spectrogram_torch, spec_to_mel_torch
+from libs.mel_processing import mel_spectrogram_torch, spec_to_mel_torch
 from text.symbols import symbols
 
 
-torch.backends.cudnn.benchmark = True
 global_step = 0
 
 
@@ -44,7 +49,7 @@ def main():
 
   n_gpus = torch.cuda.device_count()
   os.environ['MASTER_ADDR'] = 'localhost'
-  os.environ['MASTER_PORT'] = '80000'
+  os.environ['MASTER_PORT'] = '8000'
 
   hps = utils.get_hparams()
   mp.spawn(run, nprocs=n_gpus, args=(n_gpus, hps,))
@@ -59,9 +64,11 @@ def run(rank, n_gpus, hps):
     writer = SummaryWriter(log_dir=hps.model_dir)
     writer_eval = SummaryWriter(log_dir=os.path.join(hps.model_dir, "eval"))
 
-  dist.init_process_group(backend='nccl', init_method='env://', world_size=n_gpus, rank=rank)
+  dist.init_process_group(backend='gloo', init_method='env://', world_size=n_gpus, rank=rank)
   torch.manual_seed(hps.train.seed)
   torch.cuda.set_device(rank)
+  # training_files = utils.load_filepaths_and_text(hps.data.training_files)
+  # validation_files = utils.load_filepaths_and_text(hps.data.validation_files)
 
   train_dataset = TextAudioLoader(hps.data.training_files, hps.data)
   train_sampler = DistributedBucketSampler(
@@ -111,7 +118,8 @@ def run(rank, n_gpus, hps):
   scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=hps.train.lr_decay, last_epoch=epoch_str-2)
 
   scaler = GradScaler(enabled=hps.train.fp16_run)
-
+  global process_bar
+  process_bar = tqdm.tqdm(range(0, (hps.train.epochs) * len(train_loader)), desc='Warmup...')
   for epoch in range(epoch_str, hps.train.epochs + 1):
     if rank==0:
       train_and_evaluate(rank, epoch, hps, [net_g, net_d], [optim_g, optim_d], [scheduler_g, scheduler_d], scaler, [train_loader, eval_loader], logger, [writer, writer_eval])
@@ -119,7 +127,7 @@ def run(rank, n_gpus, hps):
       train_and_evaluate(rank, epoch, hps, [net_g, net_d], [optim_g, optim_d], [scheduler_g, scheduler_d], scaler, [train_loader, None], None, None)
     scheduler_g.step()
     scheduler_d.step()
-
+  process_bar.close()
 
 def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loaders, logger, writers):
   net_g, net_d = nets
@@ -225,7 +233,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
         utils.save_checkpoint(net_g, optim_g, hps.train.learning_rate, epoch, os.path.join(hps.model_dir, "G_{}.pth".format(global_step)))
         utils.save_checkpoint(net_d, optim_d, hps.train.learning_rate, epoch, os.path.join(hps.model_dir, "D_{}.pth".format(global_step)))
     global_step += 1
-  
+    process_bar.update(1)
   if rank == 0:
     logger.info('====> Epoch: {}'.format(epoch))
 
@@ -285,6 +293,5 @@ def evaluate(hps, generator, eval_loader, writer_eval):
     )
     generator.train()
 
-                           
 if __name__ == "__main__":
   main()

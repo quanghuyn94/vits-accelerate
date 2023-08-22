@@ -9,3 +9,12 @@ __pycache__
 build
 *.c
 monotonic_align/monotonic_align
+isla
+isla_base
+test.py
+venv
+.vscode
+__pycache__
+bitsandbytes_windows
+lighting
+README.md
