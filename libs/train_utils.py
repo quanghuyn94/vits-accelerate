@@ -103,7 +103,7 @@ def load_custom_dataset(full_path):
 def train_args(parser : argparse.ArgumentParser):
     parser.add_argument("--epochs", default=None)
     parser.add_argument("--learning_rate", default=None)
-    parser.add_argument("--batch_size", default=1)
+    parser.add_argument("--batch_size", default=None)
     parser.add_argument("--save_every_n_epochs", default=0)
 
     parser.add_argument('--optimizer_type', default=None, help='Select Optimizer.')

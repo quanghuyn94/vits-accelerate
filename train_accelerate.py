@@ -405,12 +405,12 @@ def train_and_evaluate(process_bar : tqdm.tqdm, accelerator : Accelerator, epoch
             accelerator.print("Generation Preview")
             gen_preview(net_g=net_g, hps=hps, args=args)
 
-      if global_step % (len(train_loader) * hps.train.save_every_n_epochs) == 0 and global_step != 0:
+      if global_step % (len(train_loader) * hps.train.save_every_n_epochs - 1) == 0 and global_step != 0:
         evaluate(accelerator, hps, net_g, eval_loader, writer_eval)
 
         save_model(accelerator, args, (net_g, net_d), (optim_g, optim_d), hps.train.learning_rate, epoch)
 
-      if global_step % (len(train_loader) * hps.preview.preview_n_epochs) == 0 and global_step != 0:
+      if global_step % (len(train_loader) * hps.preview.preview_n_epochs - 1) == 0 and global_step != 0:
         if hps.preview.enable == True:
           accelerator.print("Generation Preview")
           gen_preview(net_g=net_g, hps=hps, args=args)
@@ -506,7 +506,9 @@ def parser_args():
   config = json.loads(data)
 
   hparams = utils.HParams(**config)
-  
+  if not args.batch_size is None:
+    hparams.train.batch_size = args.batch_size
+
   return args, hparams
                            
 if __name__ == "__main__":
