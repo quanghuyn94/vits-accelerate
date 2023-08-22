@@ -507,7 +507,7 @@ def parser_args():
 
   hparams = utils.HParams(**config)
   if not args.batch_size is None:
-    hparams.train.batch_size = args.batch_size
+    hparams.train.batch_size = int(args.batch_size)
 
   return args, hparams
                            
