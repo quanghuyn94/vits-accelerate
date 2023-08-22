@@ -86,35 +86,78 @@ def caching_spectrogram(filename, hparams):
 
     return spec
 
-def load_custom_dataset(full_path):
+def load_audio_caption(full_path, etx=".txt.cleaned"):
     filepaths_and_text = []
-    audio_paths = glob.glob(os.path.join(full_path, "/**/*.wav"), recursive=True)
+    audio_paths = glob.glob(full_path + "/**/*.wav", recursive=True)
 
     for audio_path in audio_paths:
         base_path = os.path.splitext(audio_path)[0]
 
-        with open(base_path + ".txt", encoding='utf-8') as f:
+        with open(base_path + etx, encoding='utf-8') as f:
             caption = f.read()
 
-        filepaths_and_text.append((audio_path, base_path))
+        filepaths_and_text.append((audio_path, caption))
 
     return filepaths_and_text
 
+def delete_range(input_list, start_index, length):
+    if start_index < 0 or start_index >= len(input_list) or length <= 0:
+        raise ValueError("Invalid start index or length")
+
+    end_index = start_index + length - 1
+
+    if end_index >= len(input_list):
+        raise ValueError("Range to delete exceeds list length")
+
+    deleted_items = input_list[start_index:end_index + 1]
+    remaining_items = input_list[:start_index] + input_list[end_index + 1:]
+
+    return remaining_items, deleted_items
+
+def load_eval_dataset(full_path, etx=".txt.cleaned"):
+    return load_audio_caption(full_path=os.path.join(full_path + "/eval"), etx=etx)
+
+def load_train_dataset(full_path, etx=".txt.cleaned"):
+    return load_audio_caption(full_path=os.path.join(full_path + "/train"), etx=etx)
+
+def load_filepaths_and_text(filename, split="|"):
+    with open(filename, encoding='utf-8') as f:
+        filepaths_and_text = [line.strip().split(split) for line in f]
+    return filepaths_and_text
+
+def load_custom_dataset(full_path, etx=".txt.cleaned"):
+    training_files = []
+    validation_files = []
+
+    if os.path.exists(full_path + '/eval'):
+        validation_files = load_eval_dataset(full_path, etx=etx)
+
+    if os.path.exists(full_path + '/train'):
+        training_files = load_train_dataset(full_path, etx=etx)
+
+    if len(training_files) <= 0 or len(validation_files) <= 0:
+        print("Train folder or Eval folder not exist. Auto create dataset.")
+        audio_files = load_audio_caption(full_path=full_path, etx=etx)
+
+        training_files, validation_files = delete_range(audio_files, random.randint(0, len(audio_files) - 101), 100)
+    
+    return training_files, validation_files
+
 def train_args(parser : argparse.ArgumentParser):
+
     parser.add_argument("--epochs", default=None)
     parser.add_argument("--learning_rate", default=None)
     parser.add_argument("--batch_size", default=None)
-    parser.add_argument("--save_every_n_epochs", default=0)
+    parser.add_argument("--save_every_n_epochs", default=None)
+    parser.add_argument("--repeat", default=1, type=int)
 
-    parser.add_argument('--optimizer_type', default=None, help='Select Optimizer.')
-    parser.add_argument('--use_8bit_adam', action="store_true", default=False, help='Use AdamW8bit.')
-    parser.add_argument('--use_lion_optimizer', action="store_true", default=False, help='Use Lion optimizer.')
     parser.add_argument('--cache_spectrogram_to_disk', action="store_true", default=False, help='Store all spectrogram to disk.')
     parser.add_argument('--cache_spectrogram', action="store_true", default=True, help='Create cache spectrogram.')
     parser.add_argument('--pruned', action="store_true", default=False, help='Pruned you model.')
     parser.add_argument('--mixed_precision', default="fp16")
     parser.add_argument('--fine-tune', action="store_true", default=False)
 
+    parser.add_argument('--custom_dataset', default="")
 
     return parser
 

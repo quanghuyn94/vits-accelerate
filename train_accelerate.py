@@ -21,7 +21,6 @@ import libs.train_utils as train_utils
 logging.getLogger('numba').setLevel(logging.WARNING)
 logging.getLogger('matplotlib').setLevel(logging.WARNING)
 from torch import optim
-
 import libs.commons as commons
 import libs.utils as utils
 from libs.str_animation import StrAnimator
@@ -81,19 +80,19 @@ def mean(array):
     sum += number
   return sum / len(array)
 
-def save_model(accelerator : Accelerator, args, nets, optims, learning_rate, epoch):
+def save_model(accelerator : Accelerator, name, args, nets, optims, learning_rate, epoch, prefix = ""):
 
   global global_step
 
   net_g, net_d = nets
   optim_g, optim_d = optims
   net_g_checkpoint = train_utils.get_checkpoint(net_g, optim_g, learning_rate, epoch, args.pruned)
-  torch.save(net_g_checkpoint, os.path.join(args.model_dir, "G_{}{}.pth".format(global_step, "-pruned" if args.pruned == True else "")))
-  accelerator.print("Save checkpoint:", os.path.join(args.model_dir, "G_{}{}.pth".format(global_step, "-pruned" if args.pruned == True else "")))
+  torch.save(net_g_checkpoint, os.path.join(args.model_dir, "G_{}{}{}.pth".format(args.model_name, global_step, "-pruned" if args.pruned == True else "")))
+  accelerator.print("Save checkpoint:", os.path.join(args.model_dir, "G_{}{}{}.pth".format(args.model_name,global_step, "-pruned" if args.pruned == True else "")))
 
   net_d_checkpoint = train_utils.get_checkpoint(net_d, optim_d, learning_rate, epoch, args.pruned)
-  torch.save(net_d_checkpoint, os.path.join(args.model_dir, "D_{}{}.pth".format(global_step, "-pruned" if args.pruned == True else "")))
-  accelerator.print("Save checkpoint:", os.path.join(args.model_dir, "D_{}{}.pth".format(global_step, "-pruned" if args.pruned == True else "")))
+  torch.save(net_d_checkpoint, os.path.join(args.model_dir, "D_{}{}{}.pth".format(args.model_name, global_step, "-pruned" if args.pruned == True else "")))
+  accelerator.print("Save checkpoint:", os.path.join(args.model_dir, "D_{}{}{}.pth".format(args.model_name, global_step, "-pruned" if args.pruned == True else "")))
 
 def main(args, hps):
   """Assume Single Node Multi GPUs Training Only"""
@@ -123,28 +122,27 @@ def run(hps, args, accelerator : Accelerator):
   # dist.init_process_group(backend='gloo', init_method='env://', world_size=n_gpus, rank=rank)
   torch.manual_seed(hps.train.seed)
   # torch.cuda.set_device(rank)
-  training_files = utils.load_filepaths_and_text(hps.data.training_files)
-  validation_files = utils.load_filepaths_and_text(hps.data.validation_files)
+  if args.custom_dataset != "":
+    training_files, validation_files = train_utils.load_custom_dataset(args.custom_dataset)
+  else:
+    training_files = train_utils.load_filepaths_and_text(hps.data.training_files)
+    validation_files = train_utils.load_filepaths_and_text(hps.data.validation_files)
 
   caching_spectrogram_files = training_files 
   caching_spectrogram_files.extend(validation_files)
 
   caching_spectrograms = {}
-
-  for index, (caching_spectrogram_file, caption) in tqdm.tqdm(enumerate(caching_spectrogram_files), desc="Caching spectrogram", total=len(training_files)):
-    # print(caching_spectrogram_file, caption)
-    spec_filename = caching_spectrogram_file.replace(".wav", ".spec.pt")
-    if os.path.exists(spec_filename):
-      caching_spectrograms[caching_spectrogram_file] = torch.load(spec_filename)
-      continue
-    
-    if args.cache_spectrogram_to_disk == True:
-      caching_spectrograms[caching_spectrogram_file] = train_utils.caching_spectrogram(caching_spectrogram_file, hps.data)
-      torch.save(caching_spectrograms[caching_spectrogram_file], spec_filename)
-      continue
-
-
-    caching_spectrograms[caching_spectrogram_file] = train_utils.caching_spectrogram(caching_spectrogram_file, hps.data)
+  if args.cache_spectrogram:
+    if os.path.exists(os.path.join(args.model_dir, "cache_spectrogram.ckpt")):
+      print("Load caching spectrogram.")
+      caching_spectrograms = torch.load(os.path.join(args.model_dir, "cache_spectrogram.ckpt"), 'cpu')
+    else:
+      for index, (caching_spectrogram_file, caption) in tqdm.tqdm(enumerate(caching_spectrogram_files), desc="Caching spectrogram", total=len(training_files)):
+        # print(caching_spectrogram_file, caption)
+        caching_spectrograms[caching_spectrogram_file] = train_utils.caching_spectrogram(caching_spectrogram_file, hps.data)
+      
+      if args.cache_spectrogram_to_disk == True:
+        torch.save(caching_spectrograms, os.path.join(args.model_dir, "cache_spectrogram.ckpt"))
   
   train_dataset = train_utils.TextAudioLoader(training_files, hps.data, caching_spectrograms=caching_spectrograms)
 
@@ -235,8 +233,8 @@ def run(hps, args, accelerator : Accelerator):
   # print(optim_g.scaler)
   accelerator.print("===============================================================")
   accelerator.print("-Epochs:", hps.train.epochs)
-  accelerator.print("-Batch sizes:", hps.train.batch_size)
-  accelerator.print("-Max train steps:", (hps.train.epochs) * len(train_loader))
+  accelerator.print("-Batch size:", hps.train.batch_size)
+  accelerator.print("-Max train steps:", f"Epochs: {hps.train.epochs} * (Datas: {len(training_files)} / Batch size: {hps.train.batch_size}) * Repeat: {args.repeat} = {(hps.train.epochs) * len(train_loader) * args.repeat} Steps")
   # accelerator.print("-Optimizer:", optim_class.__name__)
   accelerator.print("-Learning rate:", hps.train.learning_rate)
   accelerator.print("-Text cleaners:", hps.data.text_cleaners)
@@ -245,13 +243,16 @@ def run(hps, args, accelerator : Accelerator):
 
   # scaler = GradScaler(enabled=hps.train.fp16_run)
   # scaler = accelerator.scaler = GradScaler(enabled=hps.train.fp16_run)
-  process_bar = tqdm.tqdm(range(0, (hps.train.epochs) * len(train_loader)), desc='Warmup...')
+  
+  
+  process_bar = tqdm.tqdm(range(0, (hps.train.epochs) * len(train_loader) * args.repeat), desc='Warmup...')
 
   for epoch in range(1, hps.train.epochs + 1):
+    
     if accelerator.is_main_process:
-      train_and_evaluate(process_bar, accelerator, epoch, hps, [net_g, net_d], [optim_g, optim_d], [scheduler_g, scheduler_d], [train_loader, eval_loader], logger, [writer, writer_eval])
+      train_and_evaluate(args, process_bar, accelerator, epoch, hps, [net_g, net_d], [optim_g, optim_d], [scheduler_g, scheduler_d], [train_loader, eval_loader], logger, [writer, writer_eval])
     else:
-      train_and_evaluate(process_bar, accelerator, epoch, hps, [net_g, net_d], [optim_g, optim_d], [scheduler_g, scheduler_d], [train_loader, None], None, None)
+      train_and_evaluate(args,process_bar, accelerator, epoch, hps, [net_g, net_d], [optim_g, optim_d], [scheduler_g, scheduler_d], [train_loader, None], None, None)
     scheduler_g.step()
     scheduler_d.step()
     accelerator.wait_for_everyone()
@@ -262,7 +263,7 @@ def run(hps, args, accelerator : Accelerator):
   accelerator.end_training()
 
 
-def train_and_evaluate(process_bar : tqdm.tqdm, accelerator : Accelerator, epoch, hps, nets, optims : list[optim.Optimizer], schedulers, loaders, logger, writers):
+def train_and_evaluate(args, process_bar : tqdm.tqdm, accelerator : Accelerator, epoch, hps, nets, optims : list[optim.Optimizer], schedulers, loaders, logger, writers):
   net_g, net_d = nets
   optim_g, optim_d = optims
   scheduler_g, scheduler_d = schedulers
@@ -278,146 +279,147 @@ def train_and_evaluate(process_bar : tqdm.tqdm, accelerator : Accelerator, epoch
 
   descs =  StrAnimator(["-    ", " -   ", "  -  ", "   - ", "    -"])
  
+  for repeat in range(0, args.repeat):
+    for batch_idx, (x, x_lengths, spec, spec_lengths, y, y_lengths) in enumerate(train_loader):
 
-  for batch_idx, (x, x_lengths, spec, spec_lengths, y, y_lengths) in enumerate(train_loader):
+      x, x_lengths = x.to(accelerator.device, non_blocking=True), x_lengths.to(accelerator.device, non_blocking=True)
+      spec, spec_lengths = spec.to(accelerator.device, non_blocking=True), spec_lengths.to(accelerator.device, non_blocking=True)
+      y, y_lengths = y.to(accelerator.device, non_blocking=True), y_lengths.to(accelerator.device, non_blocking=True)
 
-    x, x_lengths = x.to(accelerator.device, non_blocking=True), x_lengths.to(accelerator.device, non_blocking=True)
-    spec, spec_lengths = spec.to(accelerator.device, non_blocking=True), spec_lengths.to(accelerator.device, non_blocking=True)
-    y, y_lengths = y.to(accelerator.device, non_blocking=True), y_lengths.to(accelerator.device, non_blocking=True)
+      # x, x_lengths = x, x_lengths
+      # spec, spec_lengths = spec, spec_lengths
+      # y, y_lengths = y, y_lengths
 
-    # x, x_lengths = x, x_lengths
-    # spec, spec_lengths = spec, spec_lengths
-    # y, y_lengths = y, y_lengths
+      # autocast()
+      with accelerator.accumulate(net_d):
+        with accelerator.autocast(cache_enabled=True):
+          y_hat, l_length, attn, ids_slice, x_mask, z_mask,\
+          (z, z_p, m_p, logs_p, m_q, logs_q) = net_g(x, x_lengths, spec, spec_lengths)
 
-    # autocast()
-    with accelerator.accumulate(net_d):
-      with accelerator.autocast():
-        y_hat, l_length, attn, ids_slice, x_mask, z_mask,\
-        (z, z_p, m_p, logs_p, m_q, logs_q) = net_g(x, x_lengths, spec, spec_lengths)
+          mel = spec_to_mel_torch(
+              spec, 
+              hps.data.filter_length, 
+              hps.data.n_mel_channels, 
+              hps.data.sampling_rate,
+              hps.data.mel_fmin, 
+              hps.data.mel_fmax)
+          y_mel = commons.slice_segments(mel, ids_slice, hps.train.segment_size // hps.data.hop_length)
+          y_hat_mel = mel_spectrogram_torch(
+              y_hat.squeeze(1), 
+              hps.data.filter_length, 
+              hps.data.n_mel_channels, 
+              hps.data.sampling_rate, 
+              hps.data.hop_length, 
+              hps.data.win_length, 
+              hps.data.mel_fmin, 
+              hps.data.mel_fmax
+          )
 
-        mel = spec_to_mel_torch(
-            spec, 
-            hps.data.filter_length, 
-            hps.data.n_mel_channels, 
-            hps.data.sampling_rate,
-            hps.data.mel_fmin, 
-            hps.data.mel_fmax)
-        y_mel = commons.slice_segments(mel, ids_slice, hps.train.segment_size // hps.data.hop_length)
-        y_hat_mel = mel_spectrogram_torch(
-            y_hat.squeeze(1), 
-            hps.data.filter_length, 
-            hps.data.n_mel_channels, 
-            hps.data.sampling_rate, 
-            hps.data.hop_length, 
-            hps.data.win_length, 
-            hps.data.mel_fmin, 
-            hps.data.mel_fmax
-        )
+          y = commons.slice_segments(y, ids_slice * hps.data.hop_length, hps.train.segment_size) # slice 
 
-        y = commons.slice_segments(y, ids_slice * hps.data.hop_length, hps.train.segment_size) # slice 
-
-        # Discriminator
-        y_d_hat_r, y_d_hat_g, _, _ = net_d(y, y_hat.detach())
+          # Discriminator
+          y_d_hat_r, y_d_hat_g, _, _ = net_d(y, y_hat.detach())
+          
+          with accelerator.autocast():
+            loss_disc, losses_disc_r, losses_disc_g = discriminator_loss(y_d_hat_r, y_d_hat_g)
+            loss_disc_all = loss_disc
+          
         
-        with accelerator.autocast():
-          loss_disc, losses_disc_r, losses_disc_g = discriminator_loss(y_d_hat_r, y_d_hat_g)
-          loss_disc_all = loss_disc
+        optim_d.zero_grad()
+
+        # scaler.scale(loss_disc_all).backward()
+        accelerator.backward(loss_disc_all)
+
+        accelerator.unscale_gradients(optim_d)
+        # scaler.unscale_(optim_d)
         
-      
-      optim_d.zero_grad()
+        grad_norm_d = commons.clip_grad_value_(net_d.parameters(), None)
 
-      # scaler.scale(loss_disc_all).backward()
-      accelerator.backward(loss_disc_all)
+        # grad_norm_d = accelerator.clip_grad_value_(net_d.parameters(), None)
+        # accelerator.scaler.step(optim_d)
+        optim_d.step()
 
-      accelerator.unscale_gradients(optim_d)
-      # scaler.unscale_(optim_d)
-      
-      grad_norm_d = commons.clip_grad_value_(net_d.parameters(), None)
+      with accelerator.accumulate(net_g):
+        with accelerator.autocast(cache_enabled=True):
+          # Generator
+          y_d_hat_r, y_d_hat_g, fmap_r, fmap_g = net_d(y, y_hat)
+          with accelerator.autocast():
+            loss_dur = torch.sum(l_length.float())
+            loss_mel = F.l1_loss(y_mel, y_hat_mel) * hps.train.c_mel
+            loss_kl = kl_loss(z_p, logs_q, m_p, logs_p, z_mask) * hps.train.c_kl
+            loss_fm = feature_loss(fmap_r, fmap_g)
+            loss_gen, losses_gen = generator_loss(y_d_hat_g)
+            loss_gen_all = loss_gen + loss_fm + loss_mel + loss_dur + loss_kl
 
-      # grad_norm_d = accelerator.clip_grad_value_(net_d.parameters(), None)
-      # accelerator.scaler.step(optim_d)
-      optim_d.step()
+        optim_g.zero_grad()
+        # scaler.scale(loss_gen_all).backward()
+        # accelerator.scaler.scale(loss_gen_all).backward()
+        accelerator.backward(loss_gen_all)
+        # scaler.unscale_(optim_g)
+        accelerator.unscale_gradients(optim_g)
+        # accelerator.scaler.unscale_(optim_g)
 
-    with accelerator.accumulate(net_g):
-      with accelerator.autocast():
-        # Generator
-        y_d_hat_r, y_d_hat_g, fmap_r, fmap_g = net_d(y, y_hat)
-        with accelerator.autocast():
-          loss_dur = torch.sum(l_length.float())
-          loss_mel = F.l1_loss(y_mel, y_hat_mel) * hps.train.c_mel
-          loss_kl = kl_loss(z_p, logs_q, m_p, logs_p, z_mask) * hps.train.c_kl
-          loss_fm = feature_loss(fmap_r, fmap_g)
-          loss_gen, losses_gen = generator_loss(y_d_hat_g)
-          loss_gen_all = loss_gen + loss_fm + loss_mel + loss_dur + loss_kl
+        grad_norm_g = commons.clip_grad_value_(net_g.parameters(), None)
+        # grad_norm_g= accelerator.clip_grad_value_(net_g.parameters(), None)
 
-      optim_g.zero_grad()
-      # scaler.scale(loss_gen_all).backward()
-      # accelerator.scaler.scale(loss_gen_all).backward()
-      accelerator.backward(loss_gen_all)
-      # scaler.unscale_(optim_g)
-      accelerator.unscale_gradients(optim_g)
-      # accelerator.scaler.unscale_(optim_g)
+        # scaler.step(optim_g)
+        # scaler.update()
+        optim_g.step()
+        # accelerator.scaler.step(optim_g)
+      # accelerator.scaler.update()
 
-      grad_norm_g = commons.clip_grad_value_(net_g.parameters(), None)
-      # grad_norm_g= accelerator.clip_grad_value_(net_g.parameters(), None)
+      if accelerator.sync_gradients:
+        losses = [loss_disc, loss_gen, loss_fm, loss_mel, loss_dur, loss_kl]
+        if global_step % hps.train.log_interval == 0:
+          lr = optim_g.param_groups[0]['lr']
+          # logger.info('Train Epoch: {} [{:.0f}%]'.format(
+          #   epoch,
+          #   100. * batch_idx / len(train_loader)))
+          # logger.info([x.item() for x in losses] + [global_step, lr])
+          # logger.info([x.item() for x in losses] + [global_step, lr])
+          scalar_dict = {"loss/g/total": loss_gen_all, "loss/d/total": loss_disc_all, "loss/avg_totals/": mean(x for x in losses), "learning_rate": lr, "grad_norm_d": grad_norm_d, "grad_norm_g": grad_norm_g}
 
-      # scaler.step(optim_g)
-      # scaler.update()
-      optim_g.step()
-      # accelerator.scaler.step(optim_g)
-    # accelerator.scaler.update()
+          scalar_dict.update({"loss/g/fm": loss_fm, "loss/g/mel": loss_mel, "loss/g/dur": loss_dur, "loss/g/kl": loss_kl})
+          scalar_dict.update({"loss/g/{}".format(i): v for i, v in enumerate(losses_gen)})
+          scalar_dict.update({"loss/g/{}".format(i): v for i, v in enumerate(losses_gen)})
+          scalar_dict.update({"loss/d_r/{}".format(i): v for i, v in enumerate(losses_disc_r)})
+          scalar_dict.update({"loss/d_g/{}".format(i): v for i, v in enumerate(losses_disc_g)})
+          image_dict = { 
+              "slice/mel_org": utils.plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),
+              "slice/mel_gen": utils.plot_spectrogram_to_numpy(y_hat_mel[0].data.cpu().numpy()), 
+              "all/mel": utils.plot_spectrogram_to_numpy(mel[0].data.cpu().numpy()),
+              "all/attn": utils.plot_alignment_to_numpy(attn[0,0].data.cpu().numpy())
+          }
+          utils.summarize(
+            writer=writer,
+            global_step=global_step, 
+            images=image_dict,
+            scalars=scalar_dict)
+          
+        if hps.train.eval_interval > 0:
+          if global_step % hps.train.eval_interval == 0 and global_step != 0:
+            evaluate(accelerator, hps, net_g, eval_loader, writer_eval)
+            # utils.save_checkpoint(net_g, optim_g, hps.train.learning_rate, epoch, os.path.join(hps.model_dir, "G_{}.pth".format(global_step)))
+            # utils.save_checkpoint(net_d, optim_d, hps.train.learning_rate, epoch, os.path.join(hps.model_dir, "D_{}.pth".format(global_step)))
+            save_model(accelerator, args, (net_g, net_d), (optim_g, optim_d), hps.train.learning_rate, epoch)
 
-    if accelerator.sync_gradients:
-      losses = [loss_disc, loss_gen, loss_fm, loss_mel, loss_dur, loss_kl]
-      if global_step % hps.train.log_interval == 0:
-        lr = optim_g.param_groups[0]['lr']
-        # logger.info('Train Epoch: {} [{:.0f}%]'.format(
-        #   epoch,
-        #   100. * batch_idx / len(train_loader)))
-        # logger.info([x.item() for x in losses] + [global_step, lr])
-        # logger.info([x.item() for x in losses] + [global_step, lr])
-        scalar_dict = {"loss/g/total": loss_gen_all, "loss/d/total": loss_disc_all, "learning_rate": lr, "grad_norm_d": grad_norm_d, "grad_norm_g": grad_norm_g}
-        scalar_dict.update({"loss/g/fm": loss_fm, "loss/g/mel": loss_mel, "loss/g/dur": loss_dur, "loss/g/kl": loss_kl})
-        scalar_dict.update({"loss/g/{}".format(i): v for i, v in enumerate(losses_gen)})
-        scalar_dict.update({"loss/g/{}".format(i): v for i, v in enumerate(losses_gen)})
-        scalar_dict.update({"loss/d_r/{}".format(i): v for i, v in enumerate(losses_disc_r)})
-        scalar_dict.update({"loss/d_g/{}".format(i): v for i, v in enumerate(losses_disc_g)})
-        image_dict = { 
-            "slice/mel_org": utils.plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),
-            "slice/mel_gen": utils.plot_spectrogram_to_numpy(y_hat_mel[0].data.cpu().numpy()), 
-            "all/mel": utils.plot_spectrogram_to_numpy(mel[0].data.cpu().numpy()),
-            "all/attn": utils.plot_alignment_to_numpy(attn[0,0].data.cpu().numpy())
-        }
-        utils.summarize(
-          writer=writer,
-          global_step=global_step, 
-          images=image_dict,
-          scalars=scalar_dict)
-        
-      if hps.train.eval_interval > 0:
-        if global_step % hps.train.eval_interval == 0 and global_step != 0:
+            if hps.preview.enable == True:
+              accelerator.print("Generation Preview")
+              gen_preview(net_g=net_g, hps=hps, args=args)
+
+        if global_step % (len(train_loader) * args.repeat * hps.train.save_every_n_epochs - 1) == 0 and global_step != 0:
           evaluate(accelerator, hps, net_g, eval_loader, writer_eval)
-          # utils.save_checkpoint(net_g, optim_g, hps.train.learning_rate, epoch, os.path.join(hps.model_dir, "G_{}.pth".format(global_step)))
-          # utils.save_checkpoint(net_d, optim_d, hps.train.learning_rate, epoch, os.path.join(hps.model_dir, "D_{}.pth".format(global_step)))
-          save_model(accelerator, args, (net_g, net_d), (optim_g, optim_d), hps.train.learning_rate, epoch)
 
+          save_model(accelerator, args.name, args, (net_g, net_d), (optim_g, optim_d), hps.train.learning_rate, epoch)
+
+        if global_step % (len(train_loader)* args.repeat * hps.preview.preview_n_epochs - 1) == 0 and global_step != 0:
           if hps.preview.enable == True:
             accelerator.print("Generation Preview")
             gen_preview(net_g=net_g, hps=hps, args=args)
-
-      if global_step % (len(train_loader) * hps.train.save_every_n_epochs - 1) == 0 and global_step != 0:
-        evaluate(accelerator, hps, net_g, eval_loader, writer_eval)
-
-        save_model(accelerator, args, (net_g, net_d), (optim_g, optim_d), hps.train.learning_rate, epoch)
-
-      if global_step % (len(train_loader) * hps.preview.preview_n_epochs - 1) == 0 and global_step != 0:
-        if hps.preview.enable == True:
-          accelerator.print("Generation Preview")
-          gen_preview(net_g=net_g, hps=hps, args=args)
-      process_bar.desc = f'Epoch {epoch}/{hps.train.epochs}{descs.next()}Steps'
-      process_bar.set_postfix({"avg_loss" : mean([x.item() for x in losses])})
-      process_bar.update(1)
-    global_step += 1
+        process_bar.desc = f'Epoch {epoch}/{hps.train.epochs}{descs.next()}Steps'
+        process_bar.set_postfix({"avg_loss" : mean(x.item() for x in losses)})
+        process_bar.update(1)
+      global_step += 1
 
     
 
@@ -506,8 +508,18 @@ def parser_args():
   config = json.loads(data)
 
   hparams = utils.HParams(**config)
+
   if not args.batch_size is None:
     hparams.train.batch_size = int(args.batch_size)
+
+  if not args.epochs is None:
+    hparams.train.epochs = int(args.epochs)
+
+  if not args.learning_rate is None:
+    hparams.train.learning_rate = int(args.learning_rate)
+
+  if not args.save_every_n_epochs is None:
+    hparams.train.save_every_n_epochs= int(args.save_every_n_epochs)
 
   return args, hparams
                            
