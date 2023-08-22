@@ -52,7 +52,7 @@ pip install -r requirements.txt
 |   |   |__*.wav
 |   |   |__*.txt.cleaned
 ```
-- Alternatively, the structure could be like this:
+- Alternatively, the structure could be like this: (Auto dataset)
 ```
 <you dataset>
 |__ audio1.wav
