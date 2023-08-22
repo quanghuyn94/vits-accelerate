@@ -24,6 +24,7 @@ from torch import optim
 
 import libs.commons as commons
 import libs.utils as utils
+from libs.str_animation import StrAnimator
 from libs.data_utils import (
   TextAudioLoader,
   TextAudioCollate,
@@ -98,7 +99,7 @@ def main(args, hps):
   """Assume Single Node Multi GPUs Training Only"""
   assert torch.cuda.is_available(), "CPU training is not allowed."
 
-  n_gpus = torch.cuda.device_count()
+  # n_gpus = torch.cuda.device_count()
 
   accelerator = Accelerator(mixed_precision=args.mixed_precision)
   accelerator.init_trackers("train.vits")
@@ -275,11 +276,11 @@ def train_and_evaluate(process_bar : tqdm.tqdm, accelerator : Accelerator, epoch
   net_g.train()
   net_d.train()
 
-  descs = ["-    ", " -   ", "  -  ", "   - ", "    -"]
-  descs_index = 0
+  descs =  StrAnimator(["-    ", " -   ", "  -  ", "   - ", "    -"])
+ 
 
   for batch_idx, (x, x_lengths, spec, spec_lengths, y, y_lengths) in enumerate(train_loader):
-    
+
     x, x_lengths = x.to(accelerator.device, non_blocking=True), x_lengths.to(accelerator.device, non_blocking=True)
     spec, spec_lengths = spec.to(accelerator.device, non_blocking=True), spec_lengths.to(accelerator.device, non_blocking=True)
     y, y_lengths = y.to(accelerator.device, non_blocking=True), y_lengths.to(accelerator.device, non_blocking=True)
@@ -318,9 +319,9 @@ def train_and_evaluate(process_bar : tqdm.tqdm, accelerator : Accelerator, epoch
         # Discriminator
         y_d_hat_r, y_d_hat_g, _, _ = net_d(y, y_hat.detach())
         
-        # with accelerator.autocast():
-        loss_disc, losses_disc_r, losses_disc_g = discriminator_loss(y_d_hat_r, y_d_hat_g)
-        loss_disc_all = loss_disc
+        with accelerator.autocast():
+          loss_disc, losses_disc_r, losses_disc_g = discriminator_loss(y_d_hat_r, y_d_hat_g)
+          loss_disc_all = loss_disc
         
       
       optim_d.zero_grad()
@@ -341,14 +342,13 @@ def train_and_evaluate(process_bar : tqdm.tqdm, accelerator : Accelerator, epoch
       with accelerator.autocast():
         # Generator
         y_d_hat_r, y_d_hat_g, fmap_r, fmap_g = net_d(y, y_hat)
-        # with accelerator.autocast():
-        loss_dur = torch.sum(l_length.float())
-        loss_mel = F.l1_loss(y_mel, y_hat_mel) * hps.train.c_mel
-        loss_kl = kl_loss(z_p, logs_q, m_p, logs_p, z_mask) * hps.train.c_kl
-
-        loss_fm = feature_loss(fmap_r, fmap_g)
-        loss_gen, losses_gen = generator_loss(y_d_hat_g)
-        loss_gen_all = loss_gen + loss_fm + loss_mel + loss_dur + loss_kl
+        with accelerator.autocast():
+          loss_dur = torch.sum(l_length.float())
+          loss_mel = F.l1_loss(y_mel, y_hat_mel) * hps.train.c_mel
+          loss_kl = kl_loss(z_p, logs_q, m_p, logs_p, z_mask) * hps.train.c_kl
+          loss_fm = feature_loss(fmap_r, fmap_g)
+          loss_gen, losses_gen = generator_loss(y_d_hat_g)
+          loss_gen_all = loss_gen + loss_fm + loss_mel + loss_dur + loss_kl
 
       optim_g.zero_grad()
       # scaler.scale(loss_gen_all).backward()
@@ -367,10 +367,8 @@ def train_and_evaluate(process_bar : tqdm.tqdm, accelerator : Accelerator, epoch
       # accelerator.scaler.step(optim_g)
     # accelerator.scaler.update()
 
-
-    losses = [loss_disc, loss_gen, loss_fm, loss_mel, loss_dur, loss_kl]
-
     if accelerator.sync_gradients:
+      losses = [loss_disc, loss_gen, loss_fm, loss_mel, loss_dur, loss_kl]
       if global_step % hps.train.log_interval == 0:
         lr = optim_g.param_groups[0]['lr']
         # logger.info('Train Epoch: {} [{:.0f}%]'.format(
@@ -412,14 +410,16 @@ def train_and_evaluate(process_bar : tqdm.tqdm, accelerator : Accelerator, epoch
 
         save_model(accelerator, args, (net_g, net_d), (optim_g, optim_d), hps.train.learning_rate, epoch)
 
+      if global_step % (len(train_loader) * hps.preview.preview_n_epochs) == 0 and global_step != 0:
         if hps.preview.enable == True:
           accelerator.print("Generation Preview")
           gen_preview(net_g=net_g, hps=hps, args=args)
-      descs_index = batch_idx % len(descs) - 1
-      process_bar.desc = f'Epoch {epoch}/{hps.train.epochs}{descs[descs_index]}Steps'
+      process_bar.desc = f'Epoch {epoch}/{hps.train.epochs}{descs.next()}Steps'
       process_bar.set_postfix({"avg_loss" : mean([x.item() for x in losses])})
       process_bar.update(1)
     global_step += 1
+
+    
 
 
  

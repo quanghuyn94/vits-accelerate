@@ -6,10 +6,10 @@ from torch import nn
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 
-import commons
-import utils
-from data_utils import TextAudioLoader, TextAudioCollate, TextAudioSpeakerLoader, TextAudioSpeakerCollate
-from models import SynthesizerTrn
+import libs.commons as commons
+import libs.utils as utils
+from libs.data_utils import TextAudioLoader, TextAudioCollate, TextAudioSpeakerLoader, TextAudioSpeakerCollate
+from libs.models import SynthesizerTrn
 from text.symbols import symbols
 from text import text_to_sequence
 from scipy.io import wavfile
@@ -28,8 +28,8 @@ def gen_preview(text, net_g, hps, out):
   with torch.no_grad():
     x_tst = stn_tst.cuda().unsqueeze(0)
     x_tst_lengths = torch.LongTensor([stn_tst.size(0)]).cuda()
-    sid = torch.LongTensor([0]).cuda()
-    audio = net_g.infer(x_tst, x_tst_lengths, sid=sid, noise_scale=.667, noise_scale_w=0.8, length_scale=1)[0][0,0].data.cpu().float().numpy()
+    # sid = torch.LongTensor([0]).cuda()
+    audio = net_g.infer(x_tst, x_tst_lengths, noise_scale=.667, noise_scale_w=0.8, length_scale=1)[0][0,0].data.cpu().float().numpy()
     now = datetime.now()
     formatted_time = now.strftime("%Y%m%d-%H%M%S")
     wavfile.write(out, rate=hps.data.sampling_rate, data=audio)
@@ -44,8 +44,8 @@ def main():
     hps.train.segment_size // hps.data.hop_length,
     **hps.model).cuda()
    net_g.eval()
-   utils.load_checkpoint("isla_base/G_5532-pruned.pth", net_g, None)
-   gen_preview("こんにちは", net_g=net_g, hps=hps, out="test.wav")
+   utils.load_checkpoint("isla_base\G_9750.pth", net_g, None)
+   gen_preview("こんにちは!", net_g=net_g, hps=hps, out="test.wav")
 
 if __name__ == "__main__":
    main()

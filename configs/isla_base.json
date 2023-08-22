@@ -2,13 +2,13 @@
   "train": {
     "log_interval": 200,
     "eval_interval": 0,
-    "save_every_n_epochs": 1,
+    "save_every_n_epochs": 5,
     "seed": 1234,
     "epochs": 10,
     "learning_rate": 2e-4,
     "betas": [0.8, 0.99],
     "eps": 1e-9,
-    "batch_size": 4,
+    "batch_size": 2,
     "fp16_run": true,
     "lr_decay": 0.999875,
     "segment_size": 8192,
@@ -51,7 +51,9 @@
     "use_spectral_norm": false
   },
   "preview": {
-    "enable" : true,
-    "text": "みなさんこんにちは、アイラです。"
+    "enable" : false,
+    "preview_n_epochs": 5,
+    "text": "こんにちは!"
+
   }
 }
