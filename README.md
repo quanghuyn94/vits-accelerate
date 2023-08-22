@@ -2,7 +2,7 @@
 
 A customized version of VITS has been developed to accommodate emerging technologies.
 
-- Please note that this is an experimental version, and there are still several issues that need to be addressed before it can be used. Some of the differences from the regular version include:
+- Please note that this is an experimental version, and there are still several issues that need to be addressed before it can be used.
 
 ## Some of the differences from the regular version include:
 - Use with PyTorch 2.
