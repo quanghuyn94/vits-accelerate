@@ -132,14 +132,22 @@ def run(hps, args, accelerator : Accelerator):
   caching_spectrogram_files.extend(validation_files)
 
   caching_spectrograms = {}
+
   if args.cache_spectrogram:
+    
     if os.path.exists(os.path.join(args.model_dir, "cache_spectrogram.ckpt")):
       print("Load caching spectrogram.")
       caching_spectrograms = torch.load(os.path.join(args.model_dir, "cache_spectrogram.ckpt"), 'cpu')
     else:
-      for index, (caching_spectrogram_file, caption) in tqdm.tqdm(enumerate(caching_spectrogram_files), desc="Caching spectrogram", total=len(training_files)):
+      for index, (caching_spectrogram_file, caption) in tqdm.tqdm(enumerate(caching_spectrogram_files), desc="Caching spectrogram", total=len(caching_spectrogram_files)):
         # print(caching_spectrogram_file, caption)
-        caching_spectrograms[caching_spectrogram_file] = train_utils.caching_spectrogram(caching_spectrogram_file, hps.data)
+        wav = utils.load_wav_to_torch(caching_spectrogram_file)
+        name = os.path.basename(caching_spectrogram_file)
+
+        caching_spectrograms[name] = {
+                'audio' : wav,
+                'spectrogram': train_utils.caching_spectrogram(caching_spectrogram_file, hps.data)
+                }
       
       if args.cache_spectrogram_to_disk == True:
         torch.save(caching_spectrograms, os.path.join(args.model_dir, "cache_spectrogram.ckpt"))
@@ -377,7 +385,7 @@ def train_and_evaluate(args, process_bar : tqdm.tqdm, accelerator : Accelerator,
           #   100. * batch_idx / len(train_loader)))
           # logger.info([x.item() for x in losses] + [global_step, lr])
           # logger.info([x.item() for x in losses] + [global_step, lr])
-          scalar_dict = {"loss/g/total": loss_gen_all, "loss/d/total": loss_disc_all, "loss/avg_totals/": mean(x for x in losses), "learning_rate": lr, "grad_norm_d": grad_norm_d, "grad_norm_g": grad_norm_g}
+          scalar_dict = {"loss/g/total": loss_gen_all, "loss/d/total": loss_disc_all, "loss/avg_totals/": mean([x.item() for x in losses]), "learning_rate": lr, "grad_norm_d": grad_norm_d, "grad_norm_g": grad_norm_g}
 
           scalar_dict.update({"loss/g/fm": loss_fm, "loss/g/mel": loss_mel, "loss/g/dur": loss_dur, "loss/g/kl": loss_kl})
           scalar_dict.update({"loss/g/{}".format(i): v for i, v in enumerate(losses_gen)})
@@ -417,7 +425,7 @@ def train_and_evaluate(args, process_bar : tqdm.tqdm, accelerator : Accelerator,
             accelerator.print("Generation Preview")
             gen_preview(net_g=net_g, hps=hps, args=args)
         process_bar.desc = f'Epoch {epoch}/{hps.train.epochs}{descs.next()}Steps'
-        process_bar.set_postfix({"avg_loss" : mean(x.item() for x in losses)})
+        process_bar.set_postfix({"avg_loss" : mean([x.item() for x in losses])})
         process_bar.update(1)
       global_step += 1
 

@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 from torch import optim
 import torch
 import ast
@@ -149,7 +150,7 @@ def train_args(parser : argparse.ArgumentParser):
     parser.add_argument("--learning_rate", default=None)
     parser.add_argument("--batch_size", default=None)
     parser.add_argument("--save_every_n_epochs", default=None)
-    parser.add_argument("--repeat", default=1, type=int)
+    parser.add_argument("--repeat", default=1, type=int, help="How many repeats of dataset per epoch?")
 
     parser.add_argument('--cache_spectrogram_to_disk', action="store_true", default=False, help='Store all spectrogram to disk.')
     parser.add_argument('--cache_spectrogram', action="store_true", default=True, help='Create cache spectrogram.')
@@ -215,7 +216,13 @@ class TextAudioLoader(torch.utils.data.Dataset):
         return (text, spec, wav)
 
     def get_audio(self, filename):
-        audio, sampling_rate = load_wav_to_torch(filename)
+        name = os.path.basename(filename)
+
+        if name in self.caching_spectrograms:
+            audio, sampling_rate = self.caching_spectrograms[name]['audio']
+        else:
+            audio, sampling_rate = load_wav_to_torch(filename)
+
         if sampling_rate != self.sampling_rate:
             raise ValueError("{} {} SR doesn't match target {} SR".format(
                 sampling_rate, self.sampling_rate))
@@ -223,8 +230,8 @@ class TextAudioLoader(torch.utils.data.Dataset):
         audio_norm = audio_norm.unsqueeze(0)
         # spec_filename = filename.replace(".wav", ".spec.pt")
 
-        if filename in self.caching_spectrograms:
-            spec = self.caching_spectrograms[filename]
+        if name in self.caching_spectrograms:
+            spec = self.caching_spectrograms[name]['spectrogram']
         else:
             spec = spectrogram_torch(audio_norm, self.filter_length,
                 self.sampling_rate, self.hop_length, self.win_length,
@@ -250,6 +257,17 @@ class TextAudioLoader(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.audiopaths_and_text)
 
+def calculate_sha256(data_bytes):
+    # Tạo đối tượng băm SHA-256
+    sha256_hash = hashlib.sha256()
+    
+    # Cập nhật dữ liệu vào đối tượng băm
+    sha256_hash.update(data_bytes)
+    
+    # Lấy giá trị mã băm dưới dạng chuỗi hex
+    hashed_data = sha256_hash.hexdigest()
+    
+    return hashed_data
 
 class TextAudioCollate():
     """ Zero-pads model inputs and targets

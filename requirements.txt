@@ -10,3 +10,7 @@ pyopenjtalk
 bitsandbytes
 openai-whisper
 pydub
+pyworld
+faiss-cpu
+ffmpeg-python
+fairseq
