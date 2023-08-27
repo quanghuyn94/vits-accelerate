@@ -2,13 +2,13 @@
   "train": {
     "log_interval": 200,
     "eval_interval": 0,
-    "save_every_n_epochs": 5,
+    "save_every_n_epochs": 1,
     "seed": 1234,
     "epochs": 10,
     "learning_rate": 2e-4,
     "betas": [0.8, 0.99],
     "eps": 1e-9,
-    "batch_size": 2,
+    "batch_size": 1,
     "fp16_run": true,
     "lr_decay": 0.999875,
     "segment_size": 8192,
@@ -30,7 +30,7 @@
     "mel_fmin": 0.0,
     "mel_fmax": null,
     "add_blank": true,
-    "n_speakers": 0,
+    "n_speakers": 1,
     "cleaned_text": true
   },
   "model": {
@@ -48,11 +48,13 @@
     "upsample_initial_channel": 512,
     "upsample_kernel_sizes": [16,16,4,4],
     "n_layers_q": 3,
+    "gin_channels": 768,
     "use_spectral_norm": false
   },
   "preview": {
-    "enable" : false,
+    "enable" : true,
     "preview_n_epochs": 5,
+    "sid": 0,
     "text": "こんにちは!"
 
   }

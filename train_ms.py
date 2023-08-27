@@ -13,24 +13,24 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.cuda.amp import autocast, GradScaler
 
-import commons
-import utils
-from data_utils import (
+import libs.commons as commons
+import libs.utils as utils
+from libs.data_utils import (
   TextAudioSpeakerLoader,
   TextAudioSpeakerCollate,
   DistributedBucketSampler
 )
-from models import (
+from libs.models import (
   SynthesizerTrn,
   MultiPeriodDiscriminator,
 )
-from losses import (
+from libs.losses import (
   generator_loss,
   discriminator_loss,
   feature_loss,
   kl_loss
 )
-from mel_processing import mel_spectrogram_torch, spec_to_mel_torch
+from libs.mel_processing import mel_spectrogram_torch, spec_to_mel_torch
 from text.symbols import symbols
 
 
