@@ -20,3 +20,8 @@ lighting
 README.md
 test.wav
 dataset
+hubert
+nsf_hifigan
+*.pt
+*.onnx
+*.zip

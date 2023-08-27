@@ -1,7 +1,7 @@
 import torch
 from fairseq import checkpoint_utils
 
-from vencoder.encoder import SpeechEncoder
+from modules.vencoder.encoder import SpeechEncoder
 
 
 class ContentVec768L12(SpeechEncoder):
