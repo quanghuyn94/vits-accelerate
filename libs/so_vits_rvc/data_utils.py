@@ -5,9 +5,9 @@ import numpy as np
 import torch
 import torch.utils.data
 
-import utils
+import libs.so_vits_rvc.utils as utils
 from libs.mel_processing import spectrogram_torch
-from utils import load_filepaths_and_text, load_wav_to_torch
+from libs.so_vits_rvc.utils import load_filepaths_and_text, load_wav_to_torch
 
 # import h5py
 
@@ -23,7 +23,7 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
     """
 
     def __init__(self, audiopaths, hparams, all_in_mem: bool = False, vol_aug: bool = True):
-        self.audiopaths = load_filepaths_and_text(audiopaths)
+        self.audiopaths = audiopaths
         self.hparams = hparams
         self.max_wav_value = hparams.data.max_wav_value
         self.sampling_rate = hparams.data.sampling_rate
@@ -44,7 +44,7 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
         if self.all_in_mem:
             self.cache = [self.get_audio(p[0]) for p in self.audiopaths]
 
-    def get_audio(self, filename):
+    def get_audio(self, filename, sid):
         filename = filename.replace("\\", "/")
         audio, sampling_rate = load_wav_to_torch(filename)
         if sampling_rate != self.sampling_rate:
@@ -65,10 +65,10 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
             spec = torch.squeeze(spec, 0)
             torch.save(spec, spec_filename)
 
-        spk = filename.split("/")[-2]
-        spk = torch.LongTensor([self.spk_map[spk]])
+        # spk = filename.split("/")[-2]
+        spk = torch.LongTensor([sid])
 
-        f0, uv = np.load(filename + ".f0.npy",allow_pickle=True)
+        f0, uv = np.load(filename + ".f0.npy", allow_pickle=True)
         
         f0 = torch.FloatTensor(np.array(f0,dtype=float))
         uv = torch.FloatTensor(np.array(uv,dtype=float))
@@ -116,13 +116,13 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
             audio_norm = audio_norm[:, start * self.hop_length : end * self.hop_length]
             if volume is not None:
                 volume = volume[start:end]
-        return c, f0, spec, audio_norm, spk, uv,volume
+        return c, f0, spec, audio_norm, spk, uv, volume
 
     def __getitem__(self, index):
         if self.all_in_mem:
             return self.random_slice(*self.cache[index])
         else:
-            return self.random_slice(*self.get_audio(self.audiopaths[index][0]))
+            return self.random_slice(*self.get_audio(self.audiopaths[index][0], int(self.audiopaths[index][2]) if not self.audiopaths[index][2] is None else 0))
 
     def __len__(self):
         return len(self.audiopaths)

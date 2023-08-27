@@ -14,3 +14,4 @@ pyworld
 faiss-cpu
 ffmpeg-python
 fairseq
+pympler

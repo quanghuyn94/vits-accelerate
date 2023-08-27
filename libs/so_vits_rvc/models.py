@@ -4,11 +4,11 @@ from torch.nn import Conv1d, Conv2d
 from torch.nn import functional as F
 from torch.nn.utils import spectral_norm, weight_norm
 
-import libs.attentions as attentions
-import libs.commons as commons
-import libs.modules as modules
-import utils
-from libs.commons import get_padding
+import libs.so_vits_rvc.attentions as attentions
+import libs.so_vits_rvc.commons as commons
+import libs.so_vits_rvc.modules as modules
+import libs.so_vits_rvc.utils as utils
+from libs.so_vits_rvc.commons import get_padding
 from libs.so_vits_rvc.utils import f0_to_coarse
 
 
