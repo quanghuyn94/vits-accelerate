@@ -3,7 +3,8 @@
 A customized version of VITS has been developed to accommodate emerging technologies.
 
 - Please note that this is an experimental version, and there are still several issues that need to be addressed before it can be used.
-
+# Disclaimer
+This project is primarily for entertainment and to help you learn more about fascinating human knowledge. I do not encourage you to use it for non-ethical purposes. I will not be responsible for any issues you may cause on your own.
 ## Some of the differences from the regular version include:
 - Use with PyTorch 2.
 - Utilizes the Accelerate library.

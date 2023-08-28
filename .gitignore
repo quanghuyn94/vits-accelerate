@@ -25,3 +25,4 @@ nsf_hifigan
 *.pt
 *.onnx
 *.zip
+*.pth

@@ -29,7 +29,7 @@ from libs.str_animation import StrAnimator
 import libs.train_utils as train_utils 
 import accelerate
 import time
-
+import shutil
 
 logging.getLogger('matplotlib').setLevel(logging.WARNING)
 logging.getLogger('numba').setLevel(logging.WARNING)
@@ -118,6 +118,12 @@ def run(accelerator : Accelerator, args, rank, n_gpus, hps):
     # net_d = DDP(net_d, device_ids=[rank])
 
     skip_optimizer = False
+
+    if accelerator.is_main_process:
+        if os.path.exists("cache/clean_D_320000.pth") and os.path.exists("cache/clean_G_320000.pth"):
+            print("Copy pretrain from cache.")
+            shutil.copyfile("cache/clean_D_320000.pth", os.path.join(args.model_dir, "D_0.pth"))
+            shutil.copyfile("cache/clean_G_320000.pth", os.path.join(args.model_dir, "G_0.pth"))
     try:
         _, _, _, epoch_str = utils.load_checkpoint(utils.latest_checkpoint_path(hps.model_dir, "G_*.pth"), net_g,
                                                    optim_g, skip_optimizer)
@@ -143,6 +149,7 @@ def run(accelerator : Accelerator, args, rank, n_gpus, hps):
     net_g, optim_g, train_dataset, eval_dataset, scheduler_g = accelerator.prepare(net_g, optim_g, train_dataset, eval_dataset, scheduler_g)
     net_d, optim_d, train_dataset, eval_dataset, scheduler_d = accelerator.prepare(net_d, optim_d, train_dataset, eval_dataset, scheduler_g)
     
+
     accelerator.print("===============================================================")
     accelerator.print("-Epochs:", hps.train.epochs)
     accelerator.print("-Batch size:", hps.train.batch_size)
@@ -154,7 +161,9 @@ def run(accelerator : Accelerator, args, rank, n_gpus, hps):
     accelerator.print("==================All looks good, ready to train===============")
 
     process_bar = tqdm.tqdm(range(0, (hps.train.epochs) * len(train_loader)), desc='Warmup...')
-    
+
+    process_bar.update(int(epoch_str) * len(train_loader))
+
     for epoch in range(epoch_str, hps.train.epochs + 1):
         # set up warm-up learning rate
         if epoch <= warmup_epoch:
@@ -173,6 +182,7 @@ def run(accelerator : Accelerator, args, rank, n_gpus, hps):
         accelerator.wait_for_everyone()
         scheduler_g.step()
         scheduler_d.step()
+    train_utils.save_model(accelerator, global_step, args, (net_g, net_d), (optim_g, optim_d), hps.train.learning_rate, epoch)
     process_bar.close()
     accelerator.print("Train done")
     accelerator.end_training()
@@ -311,17 +321,12 @@ def train_and_evaluate(process_bar : tqdm.tqdm, accelerator : Accelerator, rank,
 
             if global_step % hps.train.eval_interval == 0:
                 evaluate(accelerator, hps, net_g, eval_loader, writer_eval)
-                utils.save_checkpoint(net_g, optim_g, hps.train.learning_rate, epoch,
-                                      os.path.join(hps.model_dir, "G_{}.pth".format(global_step)))
-                utils.save_checkpoint(net_d, optim_d, hps.train.learning_rate, epoch,
-                                      os.path.join(hps.model_dir, "D_{}.pth".format(global_step)))
-                keep_ckpts = getattr(hps.train, 'keep_ckpts', 0)
-                if keep_ckpts > 0:
-                    utils.clean_checkpoints(path_to_models=hps.model_dir, n_ckpts_to_keep=keep_ckpts, sort_by_time=True)
+                train_utils.save_model(accelerator, global_step, args, (net_g, net_d), (optim_g, optim_d), hps.train.learning_rate, epoch)
+                
 
             process_bar.desc = f'Epoch {epoch}/{hps.train.epochs}{descs.next()}Steps'
             
-            process_bar.set_postfix({"avg_loss" : train_utils.mean([x.item() for x in losses])})
+            process_bar.set_postfix({"avg_loss" : f'{train_utils.mean([x.item() for x in losses]):.3f}'})
 
         process_bar.update(1)
         global_step += 1
